@@ -1,0 +1,20 @@
+[Unit]
+Description=YALRU Paperclip Agent CLI panel bridge
+After=network-online.target paperclip.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/srv/paperclip-data/multiagent-uiux-factory
+ExecStart=/usr/bin/python3 /srv/paperclip-data/multiagent-uiux-factory/agent-dashboard-cli/server.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/srv/paperclip-data/multiagent-uiux-factory /srv/paperclip-data
+
+[Install]
+WantedBy=multi-user.target

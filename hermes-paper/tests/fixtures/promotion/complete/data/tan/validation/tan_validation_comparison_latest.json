@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-06-20T00:00:00Z",
+  "rows": [
+    {
+      "candidate_id": "current_guarded_score65_lev4_pos1",
+      "evidence": {
+        "oos_status": "passed",
+        "replay_status": "passed"
+      }
+    }
+  ]
+}

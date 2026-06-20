@@ -1,0 +1,12 @@
+[Unit]
+Description=YALRU Paperclip real terminal - QA Harness
+After=network.target yalru-agent-cli.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=2
+ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p 4295 -b /yalru-terminal/qa -W -t disableLeaveAlert=true -t disableResizeOverlay=true -t titleFixed=QA-Harness /usr/local/bin/yalru-agent-terminal qa
+
+[Install]
+WantedBy=multi-user.target

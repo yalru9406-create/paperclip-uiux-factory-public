@@ -1,0 +1,12 @@
+[Unit]
+Description=YALRU Paperclip real terminal - GajeCode
+After=network.target yalru-agent-cli.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=2
+ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p 4292 -b /yalru-terminal/gajecode -W -t disableLeaveAlert=true -t disableResizeOverlay=true -t titleFixed=GajeCode /usr/local/bin/yalru-agent-terminal gajecode
+
+[Install]
+WantedBy=multi-user.target

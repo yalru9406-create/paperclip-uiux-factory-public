@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+upstream="/usr/bin/freeclaude"
+config_path="${FREECLAUDE_CONFIG_PATH:-${HOME:-/srv/paperclip-data}/.freeclaude.json}"
+
+if [ "${1:-}" = "--version" ]; then
+  printf 'freeclaude (YALRU GLM lane wrapper; upstream '
+  "${upstream}" --version 2>/dev/null | tr -d '\n' || printf 'freeclaude unavailable'
+  printf ')\n'
+  exit 0
+fi
+
+if [ "${1:-}" = "--help" ]; then
+  cat <<'HELP'
+freeclaude - YALRU FreeClaude GLM 5.2 critic lane
+
+Uses upstream /usr/bin/freeclaude only when FREECLAUDE_USE_UPSTREAM=1,
+provider env vars are present, or ~/.freeclaude.json exists.
+Otherwise falls back to Hermes Agent GLM 5.2 for the no-paid-API Paperclip lane.
+HELP
+  exit 0
+fi
+
+if [ "${FREECLAUDE_USE_UPSTREAM:-}" = "1" ] || [ -f "${config_path}" ] || [ -n "${OPENAI_API_KEY:-}${CODEX_API_KEY:-}${ZAI_API_KEY:-}" ]; then
+  exec "${upstream}" "$@"
+fi
+
+printf 'FreeClaude upstream is installed, but no provider config is present for this HOME.\n'
+printf 'Launching Hermes Agent GLM 5.2 lane instead.\n\n'
+exec hermes "$@"

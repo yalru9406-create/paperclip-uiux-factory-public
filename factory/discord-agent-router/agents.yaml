@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "dangerousExecutionBridgeDefault": false,
+  "agents": [
+    {
+      "routeKey": "lazycodex",
+      "displayName": "LazyCodex Bot",
+      "agentName": "LazyCodex GPT Lane",
+      "adapterType": "codex_local",
+      "discordMode": "thread_or_channel",
+      "status": "ready",
+      "fallbackPolicy": "Use Codex/LazyCodex only for bounded app-code, review, and QA work. Do not use for bulk/default worker traffic.",
+      "dangerousExecutionBridge": false
+    },
+    {
+      "routeKey": "freeclaude-glm",
+      "displayName": "FreeClaude[GLM] Bot",
+      "agentName": "FreeClaude GLM 5.2 Critic",
+      "adapterType": "hermes_local",
+      "discordMode": "thread_or_channel",
+      "status": "degraded_glm_quota_exhausted",
+      "fallbackPolicy": "Queue requests or ask orchestrator for an explicitly approved non-GLM fallback until GLM quota is available.",
+      "dangerousExecutionBridge": false
+    },
+    {
+      "routeKey": "gajecode",
+      "displayName": "GajeCode Bot",
+      "agentName": "GajeCode GLM 5.2 Engineer",
+      "adapterType": "hermes_local",
+      "discordMode": "thread_or_channel",
+      "status": "degraded_glm_quota_exhausted",
+      "fallbackPolicy": "Queue engineering tasks or route to LazyCodex/Codex only after explicit orchestrator approval while GLM quota is exhausted.",
+      "dangerousExecutionBridge": false
+    },
+    {
+      "routeKey": "antigravity",
+      "displayName": "Antigravity Bot",
+      "agentName": "Gemini Antigravity Lane",
+      "adapterType": "antigravity_local",
+      "discordMode": "thread_or_channel",
+      "status": "ready",
+      "fallbackPolicy": "Use for screenshot, long-doc, and visual review tasks; keep action authority with orchestrator.",
+      "dangerousExecutionBridge": false
+    }
+  ],
+  "recommendedDiscordSurfaces": [
+    {"routeKey": "orchestrator", "name": "agent-orchestrator", "purpose": "routing, status, escalations"},
+    {"routeKey": "lazycodex", "name": "agent-lazycodex", "purpose": "bounded Codex/LazyCodex work"},
+    {"routeKey": "freeclaude-glm", "name": "agent-freeclaude-glm", "purpose": "GLM critic lane; degraded while quota exhausted"},
+    {"routeKey": "gajecode", "name": "agent-gajecode", "purpose": "GajeCode engineering lane; degraded while GLM quota exhausted"},
+    {"routeKey": "antigravity", "name": "agent-antigravity", "purpose": "visual / long-context review lane"}
+  ]
+}

@@ -1,0 +1,12 @@
+[Unit]
+Description=YALRU Paperclip real terminal - Antigravity
+After=network.target yalru-agent-cli.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=2
+ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p 4294 -b /yalru-terminal/antigravity -W -t disableLeaveAlert=true -t disableResizeOverlay=true -t titleFixed=Antigravity /usr/local/bin/yalru-agent-terminal antigravity
+
+[Install]
+WantedBy=multi-user.target

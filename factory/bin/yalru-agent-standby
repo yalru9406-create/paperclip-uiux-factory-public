@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent="${1:-}"
+factory_dir="/srv/paperclip-data/multiagent-uiux-factory"
+antigravity_agentapi="/srv/paperclip-data/.gemini/antigravity-cli/bin/agentapi"
+
+case "${agent}" in
+  hermes|lazycodex|gajecode|freeclaude|antigravity|qa) ;;
+  *)
+    echo "Unsupported agent terminal: ${agent}" >&2
+    exit 64
+    ;;
+esac
+
+cd "${factory_dir}"
+export HOME="${HOME:-/srv/paperclip-data}"
+export CODEX_HOME="${CODEX_HOME:-${HOME}/.codex}"
+export SHELL="/bin/bash"
+export TERM="${TERM:-xterm-256color}"
+export PS1="[${agent} \\W]\\$ "
+
+banner() {
+  printf '\n'
+  printf 'YALRU Paperclip agent CLI standby\n'
+  printf 'Agent: %s\n' "$1"
+  printf 'Lane:  %s\n' "$2"
+  printf 'Cwd:   %s\n' "${factory_dir}"
+  printf '%s\n\n' 'Secrets are not printed here. OAuth/subscription sessions stay in the provider CLI.'
+}
+
+fallback_shell() {
+  printf 'Dropped to scoped shell. Use the visible instructions above before running provider commands.\n\n'
+  exec /bin/bash --noprofile --norc -i
+}
+
+codex_standby() {
+  local title="$1"
+  local lane="${2:-Codex GPT-5.5 subscription lane}"
+  banner "${title}" "${lane}"
+  if ! command -v codex >/dev/null 2>&1; then
+    printf 'codex is not installed on PATH.\n'
+    fallback_shell
+  fi
+  if ! codex login status >/dev/null 2>&1; then
+    printf 'Codex is not logged in for HOME=%s.\n' "${HOME}"
+    printf 'Run: codex login --device-auth\n'
+    fallback_shell
+  fi
+  printf 'Launching: codex -C %s -m gpt-5.5\n\n' "${factory_dir}"
+  exec codex -C "${factory_dir}" -m gpt-5.5
+}
+
+hermes_glm_standby() {
+  local title="$1"
+  banner "${title}" "Hermes GLM 5.2 local lane"
+  if command -v hermes >/dev/null 2>&1; then
+    printf 'Launching: hermes\n\n'
+    exec hermes
+  fi
+  if command -v freeclaude >/dev/null 2>&1 && [ -f "${HOME}/.freeclaude.json" ]; then
+    printf 'Hermes CLI is unavailable; launching configured freeclaude.\n\n'
+    exec freeclaude
+  fi
+  printf 'Hermes CLI is unavailable, and freeclaude is not configured for HOME=%s.\n' "${HOME}"
+  fallback_shell
+}
+
+tool_standby() {
+  local title="$1"
+  local lane="$2"
+  local command_name="$3"
+  banner "${title}" "${lane}"
+  if command -v "${command_name}" >/dev/null 2>&1; then
+    printf 'Launching: %s\n\n' "${command_name}"
+    exec "${command_name}"
+  fi
+  printf '%s is not installed on PATH.\n' "${command_name}"
+  fallback_shell
+}
+
+antigravity_standby() {
+  banner "Gemini Antigravity Lane" "Antigravity OAuth/agentapi bridge lane"
+  if [ ! -x "${antigravity_agentapi}" ]; then
+    printf 'agentapi is missing: %s\n' "${antigravity_agentapi}"
+    fallback_shell
+  fi
+  if [ -z "${ANTIGRAVITY_LS_ADDRESS:-}" ]; then
+    printf 'Antigravity OAuth token may exist, but agentapi needs ANTIGRAVITY_LS_ADDRESS.\n'
+    printf 'When Antigravity exposes the lane server, run:\n'
+    printf '  export ANTIGRAVITY_LS_ADDRESS=<address>\n'
+    printf '  %s\n\n' "${antigravity_agentapi}"
+    alias antigravity-agentapi="${antigravity_agentapi}"
+    fallback_shell
+  fi
+  printf 'Launching: %s\n\n' "${antigravity_agentapi}"
+  exec "${antigravity_agentapi}"
+}
+
+case "${agent}" in
+  hermes)
+    codex_standby "Hermes Top Orchestrator" "Codex GPT-5.5 top orchestration lane"
+    ;;
+  lazycodex)
+    codex_standby "LazyCodex GPT Lane" "LazyCodex/OMO Codex GPT-5.5 lane"
+    ;;
+  gajecode)
+    tool_standby "GajeCode GLM 5.2 Engineer" "GajeCode/gjc engineer lane with Hermes GLM fallback" "gajecode"
+    ;;
+  freeclaude)
+    tool_standby "FreeClaude GLM 5.2 Critic" "FreeClaude critic lane with Hermes GLM fallback" "freeclaude"
+    ;;
+  antigravity)
+    antigravity_standby
+    ;;
+  qa)
+    hermes_glm_standby "VPS QA Harness GLM"
+    ;;
+esac

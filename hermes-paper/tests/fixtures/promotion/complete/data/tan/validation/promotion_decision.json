@@ -1,0 +1,15 @@
+{
+  "candidate_id": "current_guarded_score65_lev4_pos1",
+  "generated_at_utc": "2026-06-20T00:00:00Z",
+  "metrics": {
+    "capacity_passed": true,
+    "cost_model_passed": true,
+    "deflated_sharpe_ratio": 0.97,
+    "factor_exposure_passed": true,
+    "monte_carlo_passed": true,
+    "out_of_sample_passed": true,
+    "pbo": 0.12,
+    "regime_passed": true,
+    "wfa_positive_folds_ratio": 0.8
+  }
+}

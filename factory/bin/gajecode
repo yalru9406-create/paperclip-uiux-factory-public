@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "${1:-}" = "--version" ]; then
+  printf 'gajecode (YALRU GLM lane wrapper; upstream '
+  gjc --version 2>/dev/null | tr -d '\n' || printf 'gjc unavailable'
+  printf ')\n'
+  exit 0
+fi
+
+if [ "${1:-}" = "--help" ]; then
+  cat <<'HELP'
+gajecode - YALRU GajeCode GLM 5.2 engineer lane
+
+Uses upstream gjc when provider keys are explicitly configured in the environment.
+Falls back to Hermes Agent GLM 5.2 for the no-paid-API Paperclip lane.
+HELP
+  exit 0
+fi
+
+if [ -n "${ANTHROPIC_API_KEY:-}${ANTHROPIC_OAUTH_TOKEN:-}${OPENAI_API_KEY:-}${GEMINI_API_KEY:-}${ZAI_API_KEY:-}" ]; then
+  exec gjc "$@"
+fi
+
+printf 'GajeCode upstream gjc is installed, but no provider key/OAuth env is configured.\n'
+printf 'Launching Hermes Agent GLM 5.2 lane instead.\n\n'
+exec hermes "$@"

@@ -1,0 +1,38 @@
+# Runtime and secrets
+.env
+*.env
+config/agent-api.env
+**/agent-api.env
+**/*secret*
+**/*token*
+
+# Local/runtime state
+.omo/
+.codegraph/
+runs/
+rooms/state.json
+**/data/
+**/evidence/
+**/*.log
+**/*.db
+**/*.sqlite
+**/*.jsonl
+
+# Python/Node caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+node_modules/
+
+# Local artifacts
+*.png
+*.har
+*.tmp
+
+# Synthetic test fixtures are source, not runtime state.
+!hermes-paper/tests/fixtures/
+!hermes-paper/tests/fixtures/**
+!hermes-paper/tests/fixtures/**/data/
+!hermes-paper/tests/fixtures/**/data/**

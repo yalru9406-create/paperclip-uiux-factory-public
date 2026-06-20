@@ -1,0 +1,705 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+FACTORY_ROOT="${YALRU_UIUX_FACTORY_ROOT:-/srv/paperclip-data/multiagent-uiux-factory}"
+DATA_DIR="${PAPERCLIP_DATA_DIR:-/srv/paperclip-data}"
+PAPERCLIP_BIN="${PAPERCLIP_BIN:-/usr/bin/paperclipai}"
+CONFIG="${FACTORY_ROOT}/config/agents.json"
+API_BASE="${PAPERCLIP_API_BASE:-$(jq -r '.apiBase' "$CONFIG")}"
+COMPANY_ID="${PAPERCLIP_COMPANY_ID:-$(jq -r '.companyId' "$CONFIG")}"
+GOAL_ID="${PAPERCLIP_GOAL_ID:-$(jq -r '.goalId // empty' "$CONFIG")}"
+PROJECT_ID="${PAPERCLIP_PROJECT_ID:-$(jq -r '.projectId // empty' "$CONFIG")}"
+AGENT_ENV_FILE="${YALRU_UIUX_AGENT_ENV:-${FACTORY_ROOT}/config/agent-api.env}"
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  yalru-uiux-factory doctor
+  yalru-uiux-factory new --goal TEXT [--slug SLUG] [--target-repo PATH] [--write-scope SCOPE] [--approval-text TEXT] [--screens N] [--stack STACK] [--design-guide REF] [--no-paperclip]
+  yalru-uiux-factory status RUN_DIR
+  yalru-uiux-factory latest
+  yalru-uiux-factory capture-evidence RUN_DIR
+  yalru-uiux-factory agents
+  yalru-uiux-factory provision-agent-keys [--label NAME]
+  yalru-uiux-factory room ensure|status|send [--agent KEY] --message TEXT [--no-wake]
+  yalru-uiux-factory chat AGENT_KEY --message TEXT [--issue ISSUE_ID] [--no-wake]
+  yalru-uiux-factory hermes|lazycodex|gajecode|freeclaude|antigravity|qa --message TEXT [--issue ISSUE_ID] [--no-wake]
+
+Creates a file-based MultiAgent UI/UX run workspace and, by default, a Paperclip parent/child issue tree.
+USAGE
+}
+
+ts() {
+  date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+slugify() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-80
+}
+
+agent_id() {
+  jq -r --arg key "$1" '.agents[$key].id' "$CONFIG"
+}
+
+agent_name() {
+  jq -r --arg key "$1" '.agents[$key].name // empty' "$CONFIG"
+}
+
+agent_adapter() {
+  jq -r --arg key "$1" '.agents[$key].adapter // empty' "$CONFIG"
+}
+
+agent_api_env_name() {
+  local key upper
+  key="$(resolve_agent_key "$1")"
+  upper="$(printf '%s' "$key" | tr '[:lower:]-' '[:upper:]_')"
+  echo "YALRU_PAPERCLIP_AGENT_${upper}_KEY"
+}
+
+paperclip() {
+  sudo -u paperclip HOME="$DATA_DIR" "$PAPERCLIP_BIN" "$@"
+}
+
+paperclip_with_secret_env() {
+  local env_name="$1"
+  local env_value="$2"
+  shift 2
+  sudo -u paperclip env HOME="$DATA_DIR" "$env_name=$env_value" "$PAPERCLIP_BIN" "$@"
+}
+
+resolve_agent_key() {
+  local raw
+  raw="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  case "$raw" in
+    h|hermes|orchestrator|chair) echo "hermes" ;;
+    l|lazy|lazycodex|codex|gpt|gpt55|gpt5.5) echo "lazycodex" ;;
+    g|gaje|gajecode|glm|glm52|glm5.2) echo "gajecode" ;;
+    f|free|freeclaude|critic|reviewer) echo "freeclaude" ;;
+    a|ag|anti|antigravity|gemini) echo "antigravity" ;;
+    q|qa|harness|qa-harness) echo "qa" ;;
+    *)
+      if jq -e --arg key "$raw" '.agents[$key] != null' "$CONFIG" >/dev/null; then
+        echo "$raw"
+      else
+        echo "Unknown agent key: $1" >&2
+        return 2
+      fi
+      ;;
+  esac
+}
+
+append_log() {
+  local run_dir="$1"
+  local message="$2"
+  printf '\n- %s %s\n' "$(ts)" "$message" >> "${run_dir}/log.md"
+}
+
+render_file() {
+  local template="$1"
+  local dest="$2"
+  local goal="$3"
+  local raw_input="$4"
+  local target_repo="$5"
+  local write_scope="$6"
+  local screens="$7"
+  local stack="$8"
+  local design_guide="$9"
+  local project_name="${10}"
+
+  python3 - "$template" "$dest" "$goal" "$raw_input" "$target_repo" "$write_scope" "$screens" "$stack" "$design_guide" "$project_name" <<'PY'
+import sys
+from pathlib import Path
+
+template_path = Path(sys.argv[1])
+dest_path = Path(sys.argv[2])
+goal, raw_input, target_repo, write_scope, screens, stack, design_guide, project_name = sys.argv[3:11]
+
+text = template_path.read_text(encoding="utf-8")
+replacements = {
+    "{{GOAL}}": goal,
+    "{{RAW_INPUT}}": raw_input,
+    "{{TARGET_REPO}}": target_repo,
+    "{{WRITE_SCOPE}}": write_scope,
+    "{{SCREENS}}": screens,
+    "{{STACK}}": stack,
+    "{{DESIGN_GUIDE}}": design_guide,
+    "{{PROJECT_NAME}}": project_name,
+}
+for token, value in replacements.items():
+    text = text.replace(token, value)
+dest_path.write_text(text, encoding="utf-8")
+PY
+}
+
+doctor() {
+  local failures=0
+  echo "== services =="
+  systemctl is-active paperclip || failures=$((failures + 1))
+  systemctl is-active nginx || failures=$((failures + 1))
+  echo "== health =="
+  curl -sS -o /dev/null -w "loopback_health=%{http_code}\n" http://127.0.0.1:4191/health || failures=$((failures + 1))
+  echo "== public access =="
+  curl -sS -o /dev/null -w "public_no_auth=%{http_code}\n" https://paperclip.46.250.229.212.sslip.io/ || failures=$((failures + 1))
+  echo "public_basic_auth=not_checked_by_doctor_secret_safe"
+  echo "== adapters =="
+  sudo -u paperclip HOME="$DATA_DIR" "$PAPERCLIP_BIN" adapter test-environment codex_local -C "$COMPANY_ID" --api-base "$API_BASE" --json | jq -c '{adapterType,status}' || failures=$((failures + 1))
+  sudo -u paperclip HOME="$DATA_DIR" "$PAPERCLIP_BIN" adapter test-environment hermes_local -C "$COMPANY_ID" --api-base "$API_BASE" --json | jq -c '{adapterType,status}' || failures=$((failures + 1))
+  sudo -u paperclip HOME="$DATA_DIR" "$PAPERCLIP_BIN" adapter test-environment antigravity_local -C "$COMPANY_ID" --api-base "$API_BASE" --json | jq -c '{adapterType,status}' || failures=$((failures + 1))
+  echo "== agent chat keys =="
+  if [ -f "$AGENT_ENV_FILE" ]; then
+    echo "agent_env_file=present"
+    grep -c '^YALRU_PAPERCLIP_AGENT_' "$AGENT_ENV_FILE" | sed 's/^/agent_key_lines=/'
+  else
+    echo "agent_env_file=missing"
+    failures=$((failures + 1))
+  fi
+  echo "== agents =="
+  sudo -u paperclip HOME="$DATA_DIR" "$PAPERCLIP_BIN" agent list -C "$COMPANY_ID" --api-base "$API_BASE" --json \
+    | jq -r '(if type == "array" then . else .agents end)[] | [.name,.status,(.adapterKey // .adapterType // .adapter // "-")] | @tsv' || failures=$((failures + 1))
+  if [ "$failures" -gt 0 ]; then
+    echo "doctor_failures=$failures" >&2
+    return 1
+  fi
+}
+
+create_issue() {
+  local title="$1"
+  local description="$2"
+  local assignee="$3"
+  local priority="$4"
+  local parent_id="${5:-}"
+  local args=(issue create -C "$COMPANY_ID" --api-base "$API_BASE" --title "$title" --description "$description" --status todo --priority "$priority" --assignee-agent-id "$assignee" --json)
+  if [ -n "$GOAL_ID" ]; then
+    args+=(--goal-id "$GOAL_ID")
+  fi
+  if [ -n "$PROJECT_ID" ]; then
+    args+=(--project-id "$PROJECT_ID")
+  fi
+  if [ -n "$parent_id" ]; then
+    args+=(--parent-id "$parent_id")
+  fi
+  sudo -u paperclip HOME="$DATA_DIR" "$PAPERCLIP_BIN" "${args[@]}"
+}
+
+require_issue_json() {
+  local issue_json="$1"
+  local label="$2"
+  local id identifier
+  if ! printf '%s' "$issue_json" | jq -e 'type == "object" and (.id | type == "string" and length > 0) and (.identifier | type == "string" and length > 0)' >/dev/null; then
+    echo "Paperclip issue creation failed or returned malformed JSON for ${label}." >&2
+    printf '%s\n' "$issue_json" >&2
+    return 1
+  fi
+  id="$(printf '%s' "$issue_json" | jq -r '.id')"
+  identifier="$(printf '%s' "$issue_json" | jq -r '.identifier')"
+  printf '%s\t%s\n' "$id" "$identifier"
+}
+
+room_state_path() {
+  echo "${FACTORY_ROOT}/rooms/state.json"
+}
+
+create_room_issue() {
+  local description
+  description="$(cat "${FACTORY_ROOT}/rooms/uiux-agent-room.md"; printf '\n\nThis issue is the persistent Paperclip chat room for Hermes, LazyCodex, GajeCode, FreeClaude, Antigravity, QA Harness, and the operator.\n')"
+
+  local args=(issue create -C "$COMPANY_ID" --api-base "$API_BASE" --title "Agent Room: YALRU UI/UX Factory" --description "$description" --status todo --priority medium --json)
+  if [ -n "$GOAL_ID" ]; then
+    args+=(--goal-id "$GOAL_ID")
+  fi
+  if [ -n "$PROJECT_ID" ]; then
+    args+=(--project-id "$PROJECT_ID")
+  fi
+  paperclip "${args[@]}"
+}
+
+write_room_state() {
+  local issue_id="$1"
+  local identifier="$2"
+  local state_path
+  state_path="$(room_state_path)"
+  mkdir -p "$(dirname "$state_path")"
+  jq -n \
+    --arg issueId "$issue_id" \
+    --arg identifier "$identifier" \
+    --arg updatedAt "$(ts)" \
+    '{issueId: $issueId, identifier: $identifier, updatedAt: $updatedAt}' > "$state_path"
+}
+
+room_ensure() {
+  local id_only=0
+  if [ "${1:-}" = "--id-only" ]; then
+    id_only=1
+  fi
+
+  local state_path issue_id identifier issue_json
+  state_path="$(room_state_path)"
+  if [ -f "$state_path" ]; then
+    issue_id="$(jq -r '.issueId // empty' "$state_path")"
+    if [ -n "$issue_id" ] && issue_json="$(paperclip issue get "$issue_id" --api-base "$API_BASE" --json 2>/dev/null)"; then
+      identifier="$(printf '%s' "$issue_json" | jq -r '.identifier // .id')"
+      write_room_state "$issue_id" "$identifier"
+      if [ "$id_only" -eq 1 ]; then
+        echo "$issue_id"
+      else
+        echo "room=${identifier} (${issue_id})"
+      fi
+      return 0
+    fi
+  fi
+
+  local room_json
+  room_json="$(create_room_issue)"
+  IFS=$'\t' read -r issue_id identifier < <(require_issue_json "$room_json" "agent_room")
+  write_room_state "$issue_id" "$identifier"
+  paperclip issue document:put "$issue_id" agent-room --api-base "$API_BASE" --title "Agent Room Contract" --body-file "${FACTORY_ROOT}/rooms/uiux-agent-room.md" --change-summary "Attach reusable agent room contract" --json >/dev/null
+
+  if [ "$id_only" -eq 1 ]; then
+    echo "$issue_id"
+  else
+    echo "room=${identifier} (${issue_id})"
+  fi
+}
+
+agents_status() {
+  echo "== configured agents =="
+  jq -r '.agents | to_entries[] | [.key, .value.name, .value.adapter, .value.id] | @tsv' "$CONFIG"
+  echo "== paperclip agents =="
+  paperclip agent list -C "$COMPANY_ID" --api-base "$API_BASE" --json \
+    | jq -r '(if type == "array" then . else .agents end)[] | [.name,.status,(.adapterKey // .adapterType // .adapter // "-"),.id] | @tsv'
+}
+
+shell_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+provision_agent_keys() {
+  local label="yalru-uiux-factory-chat"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --label)
+        label="${2:-}"
+        shift 2
+        ;;
+      -h|--help)
+        echo "Usage: yalru-uiux-factory provision-agent-keys [--label NAME]"
+        return 0
+        ;;
+      *)
+        echo "Unknown provision-agent-keys option: $1" >&2
+        return 2
+        ;;
+    esac
+  done
+
+  local tmp key id name list_json existing_id create_json token key_id env_name count
+  tmp="$(mktemp)"
+  umask 077
+  {
+    echo "# Generated by yalru-uiux-factory provision-agent-keys at $(ts)"
+    echo "# Secret file. Do not commit or paste."
+  } > "$tmp"
+
+  count=0
+  while read -r key; do
+    id="$(agent_id "$key")"
+    name="${label}-${key}"
+    list_json="$(paperclip token agent list -C "$COMPANY_ID" --agent "$id" --api-base "$API_BASE" --json)"
+    while read -r existing_id; do
+      [ -z "$existing_id" ] && continue
+      paperclip token agent revoke "$existing_id" -C "$COMPANY_ID" --agent "$id" --api-base "$API_BASE" --json >/dev/null
+    done < <(printf '%s' "$list_json" | jq -r --arg name "$name" '.keys[]? | select(.name == $name and (.revokedAt == null)) | .id')
+
+    create_json="$(paperclip token agent create -C "$COMPANY_ID" --agent "$id" --name "$name" --api-base "$API_BASE" --json)"
+    token="$(printf '%s' "$create_json" | jq -r '.token // .key.token // .apiKey // .key.apiKey // empty')"
+    key_id="$(printf '%s' "$create_json" | jq -r '.id // .key.id // empty')"
+    if [ -z "$token" ] || [ "$token" = "null" ]; then
+      echo "Failed to create token for $key" >&2
+      rm -f "$tmp"
+      return 1
+    fi
+    env_name="$(agent_api_env_name "$key")"
+    printf '%s=%s\n' "$env_name" "$(shell_quote "$token")" >> "$tmp"
+    count=$((count + 1))
+    echo "created_key agent=${key} key_id=${key_id:-unknown}"
+  done < <(jq -r '.agents | keys[]' "$CONFIG")
+
+  install -m 0600 "$tmp" "$AGENT_ENV_FILE"
+  rm -f "$tmp"
+  echo "agent_env_file=${AGENT_ENV_FILE}"
+  echo "agent_keys=${count}"
+}
+
+load_agent_env_file() {
+  if [ ! -f "$AGENT_ENV_FILE" ]; then
+    echo "Agent API env file not found: $AGENT_ENV_FILE" >&2
+    echo "Run: yalru-uiux-factory provision-agent-keys" >&2
+    return 1
+  fi
+  set -a
+  # shellcheck disable=SC1090
+  . "$AGENT_ENV_FILE"
+  set +a
+}
+
+room_status() {
+  local state_path issue_id issue_json
+  state_path="$(room_state_path)"
+  if [ ! -f "$state_path" ]; then
+    echo "room=not_created"
+    echo "Run: yalru-uiux-factory room ensure"
+    return 1
+  fi
+  issue_id="$(jq -r '.issueId // empty' "$state_path")"
+  if [ -z "$issue_id" ]; then
+    echo "room=state_missing_issue_id"
+    return 1
+  fi
+  issue_json="$(paperclip issue get "$issue_id" --api-base "$API_BASE" --json)"
+  echo "== room =="
+  printf '%s' "$issue_json" | jq -r '[.identifier,.title,.status,.id] | @tsv'
+  echo "== active run =="
+  paperclip issue active-run "$issue_id" --api-base "$API_BASE" --json 2>/dev/null \
+    | jq -r 'if . == null then "no-active-run" else (.status // .state // .id) end'
+  agents_status
+}
+
+chat_send() {
+  local requested_key="${1:-}"
+  if [ -z "$requested_key" ]; then
+    echo "chat requires AGENT_KEY" >&2
+    return 2
+  fi
+  shift || true
+
+  local agent_key message issue_id no_wake
+  agent_key="$(resolve_agent_key "$requested_key")"
+  message=""
+  issue_id=""
+  no_wake=0
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --message|-m)
+        message="${2:-}"
+        shift 2
+        ;;
+      --issue)
+        issue_id="${2:-}"
+        shift 2
+        ;;
+      --no-wake)
+        no_wake=1
+        shift
+        ;;
+      -h|--help)
+        echo "Usage: yalru-uiux-factory chat AGENT_KEY --message TEXT [--issue ISSUE_ID] [--no-wake]"
+        return 0
+        ;;
+      *)
+        if [ -z "$message" ]; then
+          message="$*"
+          break
+        fi
+        echo "Unknown chat option: $1" >&2
+        return 2
+        ;;
+    esac
+  done
+
+  if [ -z "$message" ] && [ ! -t 0 ]; then
+    message="$(cat)"
+  fi
+  if [ -z "$message" ]; then
+    echo "--message is required, or pipe message text on stdin" >&2
+    return 2
+  fi
+  if [ -z "$issue_id" ]; then
+    issue_id="$(room_ensure --id-only)"
+  fi
+
+  load_agent_env_file
+
+  local agent body env_name env_value
+  agent="$(agent_id "$agent_key")"
+  env_name="$(agent_api_env_name "$agent_key")"
+  env_value="${!env_name:-}"
+  if [ -z "$env_value" ]; then
+    echo "Missing agent API env var: $env_name" >&2
+    echo "Run: yalru-uiux-factory provision-agent-keys" >&2
+    return 1
+  fi
+  body="$(printf 'Agent Room message\n\nfrom: yalru-uiux-factory\nagent_key: %s\nagent_name: %s\nsent_at: %s\n\n%s\n' "$agent_key" "$(agent_name "$agent_key")" "$(ts)" "$message")"
+
+  local args=(agent prompt --api-base "$API_BASE" --api-key-env "$env_name" --agent "$agent" --issue "$issue_id")
+  if [ "$no_wake" -eq 1 ]; then
+    args+=(--no-wake)
+  fi
+  args+=("$body")
+  paperclip_with_secret_env "$env_name" "$env_value" "${args[@]}"
+}
+
+room_send() {
+  local agent_key="hermes"
+  local message=""
+  local issue_id=""
+  local no_wake=0
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --agent)
+        agent_key="${2:-}"
+        shift 2
+        ;;
+      --message|-m)
+        message="${2:-}"
+        shift 2
+        ;;
+      --issue)
+        issue_id="${2:-}"
+        shift 2
+        ;;
+      --no-wake)
+        no_wake=1
+        shift
+        ;;
+      -h|--help)
+        echo "Usage: yalru-uiux-factory room send [--agent KEY] --message TEXT [--no-wake]"
+        return 0
+        ;;
+      *)
+        if [ -z "$message" ]; then
+          message="$*"
+          break
+        fi
+        echo "Unknown room send option: $1" >&2
+        return 2
+        ;;
+    esac
+  done
+
+  local args=("$agent_key" --message "$message")
+  if [ -n "$issue_id" ]; then
+    args+=(--issue "$issue_id")
+  fi
+  if [ "$no_wake" -eq 1 ]; then
+    args+=(--no-wake)
+  fi
+  chat_send "${args[@]}"
+}
+
+room_cmd() {
+  local sub="${1:-status}"
+  shift || true
+  case "$sub" in
+    ensure) room_ensure "$@" ;;
+    status) room_status "$@" ;;
+    send) room_send "$@" ;;
+    -h|--help)
+      echo "Usage: yalru-uiux-factory room ensure|status|send [--agent KEY] --message TEXT [--no-wake]"
+      ;;
+    *) echo "Unknown room command: $sub" >&2; return 2 ;;
+  esac
+}
+
+new_run() {
+  local goal=""
+  local slug=""
+  local target_repo="UNSET"
+  local write_scope="UNSET"
+  local screens="UNSET"
+  local stack="UNSET"
+  local design_guide="UNSET"
+  local approval_text=""
+  local no_paperclip=0
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --goal) goal="$2"; shift 2 ;;
+      --slug) slug="$2"; shift 2 ;;
+      --target-repo) target_repo="$2"; shift 2 ;;
+      --write-scope) write_scope="$2"; shift 2 ;;
+      --approval-text) approval_text="$2"; shift 2 ;;
+      --screens) screens="$2"; shift 2 ;;
+      --stack) stack="$2"; shift 2 ;;
+      --design-guide) design_guide="$2"; shift 2 ;;
+      --no-paperclip) no_paperclip=1; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
+    esac
+  done
+
+  if [ -z "$goal" ]; then
+    echo "--goal is required" >&2
+    exit 2
+  fi
+
+  if [ -z "$slug" ]; then
+    slug="$(slugify "$goal")"
+  else
+    slug="$(slugify "$slug")"
+  fi
+
+  local stamp
+  stamp="$(date -u +%Y%m%d-%H%M%S)"
+  local run_dir="${FACTORY_ROOT}/runs/${stamp}-${slug}"
+  local project_name="$slug"
+
+  mkdir -p "$run_dir"/{artifacts,sources,evidence,approvals}
+  render_file "${FACTORY_ROOT}/templates/work-packet.md" "$run_dir/work-packet.md" "$goal" "$goal" "$target_repo" "$write_scope" "$screens" "$stack" "$design_guide" "$project_name"
+  render_file "${FACTORY_ROOT}/templates/task.md" "$run_dir/task.md" "$goal" "$goal" "$target_repo" "$write_scope" "$screens" "$stack" "$design_guide" "$project_name"
+  render_file "${FACTORY_ROOT}/templates/context.md" "$run_dir/context.md" "$goal" "$goal" "$target_repo" "$write_scope" "$screens" "$stack" "$design_guide" "$project_name"
+  render_file "${FACTORY_ROOT}/templates/brief.md" "$run_dir/brief.md" "$goal" "$goal" "$target_repo" "$write_scope" "$screens" "$stack" "$design_guide" "$project_name"
+  render_file "${FACTORY_ROOT}/templates/log.md" "$run_dir/log.md" "$goal" "$goal" "$target_repo" "$write_scope" "$screens" "$stack" "$design_guide" "$project_name"
+  render_file "${FACTORY_ROOT}/templates/approval.md" "$run_dir/approval.md" "$goal" "$goal" "$target_repo" "$write_scope" "$screens" "$stack" "$design_guide" "$project_name"
+  render_file "${FACTORY_ROOT}/templates/result.md" "$run_dir/result.md" "$goal" "$goal" "$target_repo" "$write_scope" "$screens" "$stack" "$design_guide" "$project_name"
+  render_file "${FACTORY_ROOT}/templates/DESIGN.md" "$run_dir/DESIGN.md" "$goal" "$goal" "$target_repo" "$write_scope" "$screens" "$stack" "$design_guide" "$project_name"
+  cp "${FACTORY_ROOT}/templates/qa-checklist.md" "$run_dir/qa-checklist.md"
+
+  append_log "$run_dir" "[INIT] Created run workspace."
+  if [ "$target_repo" != "UNSET" ] && [ "$write_scope" != "UNSET" ] && [ -n "$approval_text" ]; then
+    printf '\n[APPROVAL] %s\ntarget_repo=%s\nwrite_scope=%s\napproved_by=yalru\napproval_text=%s\n' "$(ts)" "$target_repo" "$write_scope" "$approval_text" >> "$run_dir/approval.md"
+    append_log "$run_dir" "[APPROVAL] Scoped target/write_scope recorded."
+  elif [ "$target_repo" != "UNSET" ] && [ "$write_scope" != "UNSET" ]; then
+    append_log "$run_dir" "[BLOCK] target_repo/write_scope present, but explicit --approval-text is missing; repository mutation remains blocked."
+  else
+    append_log "$run_dir" "[BLOCK] Repository mutation blocked until target_repo and write_scope are set."
+  fi
+
+  if [ "$no_paperclip" -eq 0 ]; then
+    local parent_json parent_id parent_identifier
+    if ! parent_json="$(create_issue "UIUX Factory: ${goal}" "$(cat "$run_dir/work-packet.md")" "$(agent_id hermes)" high)"; then
+      append_log "$run_dir" "[ERROR] Paperclip parent issue creation failed."
+      return 1
+    fi
+    IFS=$'\t' read -r parent_id parent_identifier < <(require_issue_json "$parent_json" "parent")
+    {
+      echo "# Paperclip Issues"
+      echo
+      echo "- parent: ${parent_identifier} (${parent_id})"
+    } > "$run_dir/paperclip.md"
+
+    local child_json child_id child_identifier
+    if child_json="$(create_issue "UIUX Draft: GLM visual product screens" "$(cat "${FACTORY_ROOT}/prompts/glm-visual-brief.md"; printf '\n\nRun directory: `%s`\nGoal: %s\n' "$run_dir" "$goal")" "$(agent_id gajecode)" high "$parent_id")" \
+      && IFS=$'\t' read -r child_id child_identifier < <(require_issue_json "$child_json" "glm_visual"); then
+      echo "- glm_visual: ${child_identifier} (${child_id})" >> "$run_dir/paperclip.md"
+    else
+      append_log "$run_dir" "[ERROR] Failed to create glm_visual child issue."
+      return 1
+    fi
+
+    if child_json="$(create_issue "UIUX Implement: Codex product code and QA" "$(cat "${FACTORY_ROOT}/prompts/codex-implementation.md"; printf '\n\nRun directory: `%s`\nGoal: %s\n' "$run_dir" "$goal")" "$(agent_id lazycodex)" high "$parent_id")" \
+      && IFS=$'\t' read -r child_id child_identifier < <(require_issue_json "$child_json" "codex_impl"); then
+      echo "- codex_impl: ${child_identifier} (${child_id})" >> "$run_dir/paperclip.md"
+    else
+      append_log "$run_dir" "[ERROR] Failed to create codex_impl child issue."
+      return 1
+    fi
+
+    if child_json="$(create_issue "UIUX Review: Antigravity screenshot/document review" "$(cat "${FACTORY_ROOT}/prompts/antigravity-vision-review.md"; printf '\n\nRun directory: `%s`\nGoal: %s\n' "$run_dir" "$goal")" "$(agent_id antigravity)" medium "$parent_id")" \
+      && IFS=$'\t' read -r child_id child_identifier < <(require_issue_json "$child_json" "antigravity_review"); then
+      echo "- antigravity_review: ${child_identifier} (${child_id})" >> "$run_dir/paperclip.md"
+    else
+      append_log "$run_dir" "[ERROR] Failed to create antigravity_review child issue."
+      return 1
+    fi
+
+    if child_json="$(create_issue "UIUX Critic: slop and overclaim review" "$(cat "${FACTORY_ROOT}/prompts/antigravity-vision-review.md"; printf '\n\nAlso check overclaiming, hidden risks, and missing evidence.\nRun directory: `%s`\nGoal: %s\n' "$run_dir" "$goal")" "$(agent_id freeclaude)" medium "$parent_id")" \
+      && IFS=$'\t' read -r child_id child_identifier < <(require_issue_json "$child_json" "critic"); then
+      echo "- critic: ${child_identifier} (${child_id})" >> "$run_dir/paperclip.md"
+    else
+      append_log "$run_dir" "[ERROR] Failed to create critic child issue."
+      return 1
+    fi
+
+    if child_json="$(create_issue "UIUX QA: final browser/service evidence gate" "$(cat "${FACTORY_ROOT}/prompts/qa-harness.md"; printf '\n\nRun directory: `%s`\nGoal: %s\n' "$run_dir" "$goal")" "$(agent_id qa)" high "$parent_id")" \
+      && IFS=$'\t' read -r child_id child_identifier < <(require_issue_json "$child_json" "qa"); then
+      echo "- qa: ${child_identifier} (${child_id})" >> "$run_dir/paperclip.md"
+    else
+      append_log "$run_dir" "[ERROR] Failed to create qa child issue."
+      return 1
+    fi
+
+    sudo -u paperclip HOME="$DATA_DIR" "$PAPERCLIP_BIN" issue document:put "$parent_id" factory-run --api-base "$API_BASE" --title "Factory Run" --body-file "$run_dir/work-packet.md" --change-summary "Attach factory work packet" --json >/dev/null
+    append_log "$run_dir" "[PAPERCLIP] Created parent and child issue tree: ${parent_identifier}."
+  else
+    append_log "$run_dir" "[PAPERCLIP] Skipped issue creation by --no-paperclip."
+  fi
+
+  ln -sfn "$run_dir" "${FACTORY_ROOT}/runs/latest"
+  echo "$run_dir"
+}
+
+status_run() {
+  local run_dir="$1"
+  if [ ! -d "$run_dir" ]; then
+    echo "Run dir not found: $run_dir" >&2
+    exit 2
+  fi
+  echo "run_dir=$run_dir"
+  if [ -f "$run_dir/paperclip.md" ]; then
+    cat "$run_dir/paperclip.md"
+    echo
+    grep -Eo 'YAL-[0-9]+' "$run_dir/paperclip.md" | while read -r issue; do
+      printf '%s ' "$issue"
+      sudo -u paperclip HOME="$DATA_DIR" "$PAPERCLIP_BIN" issue get "$issue" --api-base "$API_BASE" --json \
+        | jq -r '[.status, (if .activeRecoveryAction == null then "no-recovery" else "recovery" end), (.projectId // "-"), (.goalId // "-")] | @tsv'
+      printf '%s ' "$issue"
+      sudo -u paperclip HOME="$DATA_DIR" "$PAPERCLIP_BIN" issue active-run "$issue" --api-base "$API_BASE" --json 2>/dev/null \
+        | jq -r 'if . == null then "no-active-run" else (.status // .state // .id) end'
+    done
+  fi
+}
+
+latest() {
+  if [ -L "${FACTORY_ROOT}/runs/latest" ]; then
+    readlink -f "${FACTORY_ROOT}/runs/latest"
+  else
+    find "${FACTORY_ROOT}/runs" -mindepth 1 -maxdepth 1 -type d | sort | tail -1
+  fi
+}
+
+capture_evidence() {
+  local run_dir="$1"
+  if [ ! -d "$run_dir" ]; then
+    echo "Run dir not found: $run_dir" >&2
+    exit 2
+  fi
+  mkdir -p "$run_dir/evidence"
+  doctor > "$run_dir/evidence/doctor.txt" 2>&1
+  status_run "$run_dir" > "$run_dir/evidence/status.txt" 2>&1
+  sudo -u paperclip HOME="$DATA_DIR" "$PAPERCLIP_BIN" run live -C "$COMPANY_ID" --api-base "$API_BASE" --json > "$run_dir/evidence/live-runs.json"
+  find "$FACTORY_ROOT" -maxdepth 2 -type f -printf "%P\n" | sort > "$run_dir/evidence/factory-files.txt"
+  {
+    echo "# Evidence Capture"
+    echo
+    echo "- captured_at: $(ts)"
+    echo "- doctor: evidence/doctor.txt"
+    echo "- status: evidence/status.txt"
+    echo "- live_runs: evidence/live-runs.json"
+    echo "- files: evidence/factory-files.txt"
+  } > "$run_dir/evidence/README.md"
+  append_log "$run_dir" "[EVIDENCE] Captured doctor/status/live-runs/factory-files."
+  echo "$run_dir/evidence"
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  doctor) shift; doctor "$@" ;;
+  new) shift; new_run "$@" ;;
+  status) shift; status_run "${1:-$(latest)}" ;;
+  latest) latest ;;
+  capture-evidence) shift; capture_evidence "${1:-$(latest)}" ;;
+  agents) shift; agents_status "$@" ;;
+  provision-agent-keys) shift; provision_agent_keys "$@" ;;
+  room) shift; room_cmd "$@" ;;
+  chat) shift; chat_send "$@" ;;
+  hermes) shift; chat_send hermes "$@" ;;
+  lazycodex) shift; chat_send lazycodex "$@" ;;
+  gajecode) shift; chat_send gajecode "$@" ;;
+  freeclaude) shift; chat_send freeclaude "$@" ;;
+  antigravity) shift; chat_send antigravity "$@" ;;
+  qa) shift; chat_send qa "$@" ;;
+  -h|--help|"") usage ;;
+  *) echo "Unknown command: $cmd" >&2; usage; exit 2 ;;
+esac

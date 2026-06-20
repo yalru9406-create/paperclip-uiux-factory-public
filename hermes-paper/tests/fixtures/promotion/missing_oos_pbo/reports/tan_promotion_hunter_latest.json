@@ -1,0 +1,10 @@
+{
+  "approval_required": true,
+  "generated_at": "2026-06-20T00:00:00Z",
+  "live_runtime_mutation_allowed": false,
+  "orders_or_cancels_performed": false,
+  "promotion_decision": "continue_research",
+  "runtime_mutation_performed": false,
+  "tan_live_restart_allowed": false,
+  "top_paper_candidate": "current_guarded_score65_lev4_pos1"
+}

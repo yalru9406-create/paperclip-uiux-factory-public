@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent="${1:-}"
+case "$agent" in
+  hermes|lazycodex|gajecode|freeclaude|antigravity|qa) ;;
+  *)
+    echo "Unsupported agent terminal: ${agent}" >&2
+    exit 64
+    ;;
+esac
+
+session="yalru-${agent}-cli"
+factory_dir="/srv/paperclip-data/multiagent-uiux-factory"
+exec tmux -S /run/yalru-agent-cli-tmux.sock new-session -A -s "${session}" \
+  -c "${factory_dir}" \
+  "sudo -u paperclip env HOME=/srv/paperclip-data SHELL=/bin/bash TERM=xterm-256color /usr/local/bin/yalru-agent-standby '${agent}'"

@@ -1,0 +1,14 @@
+{
+  "generated_at": "2026-06-20T00:00:00Z",
+  "rows": [
+    {
+      "candidate_id": "current_guarded_score65_lev4_pos1",
+      "evidence": {
+        "monte_carlo_passed": true,
+        "walk_forward_passed": true
+      },
+      "monte_carlo_status": "passed",
+      "regime_coverage_status": "passed"
+    }
+  ]
+}

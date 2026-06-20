@@ -1,0 +1,12 @@
+[Unit]
+Description=YALRU Paperclip real terminal - Hermes
+After=network.target yalru-agent-cli.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=2
+ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p 4290 -b /yalru-terminal/hermes -W -t disableLeaveAlert=true -t disableResizeOverlay=true -t titleFixed=Hermes /usr/local/bin/yalru-agent-terminal hermes
+
+[Install]
+WantedBy=multi-user.target

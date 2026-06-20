@@ -1,0 +1,25 @@
+{
+  "apiBase": "https://paperclip.example.local",
+  "agents": [
+    {
+      "key": "lazycodex",
+      "name": "LazyCodex GPT Lane",
+      "adapter": "codex_local"
+    },
+    {
+      "key": "freeclaude",
+      "name": "FreeClaude GLM Lane",
+      "adapter": "hermes_local"
+    },
+    {
+      "key": "gajecode",
+      "name": "GajeCode GLM Lane",
+      "adapter": "hermes_local"
+    },
+    {
+      "key": "antigravity",
+      "name": "Gemini Antigravity Lane",
+      "adapter": "antigravity_local"
+    }
+  ]
+}

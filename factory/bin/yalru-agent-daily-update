@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="/usr/local/bin:/usr/bin:/bin"
+log_file="/var/log/yalru-agent-update.log"
+tmux_socket="/run/yalru-agent-cli-tmux.sock"
+agents=(hermes lazycodex gajecode freeclaude antigravity qa)
+packages=(
+  "@openai/codex"
+  "lazycodex-ai"
+  "gajae-code"
+  "@freeclaude/cli"
+  "@google/gemini-cli"
+  "paperclipai"
+  "oh-my-openagent"
+)
+
+log() {
+  printf '%s %s\n' "$(date -Is)" "$*" | tee -a "${log_file}"
+}
+
+local_version() {
+  node -e "try { console.log(require('/usr/lib/node_modules/${1}/package.json').version) } catch { process.exit(2) }" 2>/dev/null || true
+}
+
+restart_standby_sessions() {
+  for agent in "${agents[@]}"; do
+    tmux -S "${tmux_socket}" kill-session -t "yalru-${agent}-cli" 2>/dev/null || true
+  done
+  systemctl restart yalru-agent-standby.service
+}
+
+changed=0
+log "starting YALRU agent daily update check"
+
+for package_name in "${packages[@]}"; do
+  current="$(local_version "${package_name}")"
+  latest="$(npm view "${package_name}" version 2>/dev/null || true)"
+  if [ -z "${latest}" ]; then
+    log "skip ${package_name}: npm latest version unavailable"
+    continue
+  fi
+  if [ "${current}" = "${latest}" ]; then
+    log "ok ${package_name}: ${current}"
+    continue
+  fi
+  log "update ${package_name}: ${current:-not-installed} -> ${latest}"
+  if ! npm install -g "${package_name}@latest"; then
+    log "regular update failed for ${package_name}; retrying with npm --force"
+    if ! npm install -g --force "${package_name}@latest"; then
+      log "failed ${package_name}: update skipped after forced retry"
+      continue
+    fi
+  fi
+  changed=1
+done
+
+if [ "${changed}" -eq 1 ]; then
+  log "updates installed; restarting agent standby sessions"
+  restart_standby_sessions
+else
+  log "no updates installed"
+fi
+
+log "finished YALRU agent daily update check"
