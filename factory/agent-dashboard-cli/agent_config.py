@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,10 +11,17 @@ from typing import Final, NewType
 FactoryRoot = NewType("FactoryRoot", Path)
 AgentKey = NewType("AgentKey", str)
 
-ROOT: Final = FactoryRoot(Path("/srv/paperclip-data/multiagent-uiux-factory"))
+def default_root() -> Path:
+    override = os.environ.get("YALRU_FACTORY_ROOT")
+    if override:
+        return Path(override).expanduser().resolve()
+    return Path(__file__).resolve().parents[1]
+
+
+ROOT: Final = FactoryRoot(default_root())
 CONFIG_PATH: Final = ROOT / "config" / "agents.json"
 STATE_PATH: Final = ROOT / "rooms" / "state.json"
-DATA_DIR: Final = Path("/srv/paperclip-data")
+DATA_DIR: Final = Path(os.environ.get("YALRU_DATA_DIR", str(Path(ROOT).parent))).expanduser()
 
 JsonPrimitive = str | int | float | bool | None
 JsonValue = JsonPrimitive | list["JsonValue"] | dict[str, "JsonValue"]

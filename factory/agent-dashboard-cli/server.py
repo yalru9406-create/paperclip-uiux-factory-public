@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Callable, Final
 from urllib.parse import parse_qs, urlsplit
@@ -32,6 +34,7 @@ FACTORY_BIN: Final = Path("/usr/local/bin/yalru-uiux-factory")
 PAPERCLIP_BIN: Final = Path("/usr/bin/paperclipai")
 MAX_MESSAGE_BYTES: Final = 16_384
 COMMAND_TIMEOUT_SECONDS: Final = 180
+AUTH_TOKEN_ENV: Final = "YALRU_AGENT_CLI_TOKEN"
 
 
 TerminalAction = Callable[[AgentConfig, dict[str, JsonValue]], dict[str, JsonValue]]
@@ -96,6 +99,13 @@ def agent_status_command(agent: AgentConfig) -> list[str]:
         api_base,
         "--json",
     ]
+
+
+def request_token(handler: BaseHTTPRequestHandler) -> str:
+    authorization = handler.headers.get("Authorization", "")
+    if authorization.startswith("Bearer "):
+        return authorization.removeprefix("Bearer ").strip()
+    return handler.headers.get("X-Yalru-Agent-Token", "").strip()
 
 
 
@@ -167,6 +177,8 @@ class AgentCliHandler(BaseHTTPRequestHandler):
         )
 
     def write_status(self) -> None:
+        if not self.require_private_access():
+            return
         agent = self.resolve_agent_from_query()
         if agent is None:
             self.write_json({"ok": False, "error": "Unknown agent"}, HTTPStatus.NOT_FOUND)
@@ -176,6 +188,8 @@ class AgentCliHandler(BaseHTTPRequestHandler):
         self.write_json(result, HTTPStatus.OK if result["ok"] else HTTPStatus.BAD_GATEWAY)
 
     def write_adapter_status(self) -> None:
+        if not self.require_private_access():
+            return
         agent = self.resolve_agent_from_query()
         if agent is None:
             self.write_json({"ok": False, "error": "Unknown agent"}, HTTPStatus.NOT_FOUND)
@@ -183,6 +197,8 @@ class AgentCliHandler(BaseHTTPRequestHandler):
         self.write_json({"ok": True, "agent": agent_payload(agent), "adapter": adapter_status_payload(agent)})
 
     def write_chat(self) -> None:
+        if not self.require_private_access():
+            return
         try:
             payload = parse_request_body(self)
             route_value = string_field(payload, "agentRoute")
@@ -202,6 +218,8 @@ class AgentCliHandler(BaseHTTPRequestHandler):
             self.write_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
 
     def write_terminal_output(self) -> None:
+        if not self.require_private_access():
+            return
         agent = self.resolve_agent_from_query()
         if agent is None:
             self.write_json({"ok": False, "error": "Unknown agent"}, HTTPStatus.NOT_FOUND)
@@ -209,20 +227,30 @@ class AgentCliHandler(BaseHTTPRequestHandler):
         self.write_terminal_result(agent, capture_terminal(str(agent.key), DATA_DIR))
 
     def write_terminal_start(self) -> None:
+        if not self.require_private_access():
+            return
         self.write_terminal_payload_result(lambda agent, _: ensure_terminal(str(agent.key), ROOT, DATA_DIR))
 
     def write_terminal_input(self) -> None:
+        if not self.require_private_access():
+            return
         self.write_terminal_payload_result(
             lambda agent, payload: send_terminal_input(str(agent.key), ROOT, DATA_DIR, string_field(payload, "input")),
         )
 
     def write_terminal_clear(self) -> None:
+        if not self.require_private_access():
+            return
         self.write_terminal_payload_result(lambda agent, _: clear_terminal(str(agent.key), ROOT, DATA_DIR))
 
     def write_terminal_restart(self) -> None:
+        if not self.require_private_access():
+            return
         self.write_terminal_payload_result(lambda agent, _: restart_terminal(str(agent.key), ROOT, DATA_DIR))
 
     def write_adapter_reconnect(self) -> None:
+        if not self.require_private_access():
+            return
         try:
             payload = parse_request_body(self)
             agent = resolve_agent(string_field(payload, "agentRoute"))
@@ -256,6 +284,24 @@ class AgentCliHandler(BaseHTTPRequestHandler):
         values = parse_qs(urlsplit(self.path).query)
         route_value = values.get("agentRoute", [""])[0]
         return resolve_agent(route_value)
+
+    def require_private_access(self) -> bool:
+        if self.is_loopback_request() or self.has_valid_token():
+            return True
+        self.write_json({"ok": False, "error": "Private endpoint requires local access or token"}, HTTPStatus.FORBIDDEN)
+        return False
+
+    def is_loopback_request(self) -> bool:
+        forwarded_for = self.headers.get("X-Forwarded-For", "")
+        candidate = forwarded_for.split(",", 1)[0].strip() or str(self.client_address[0])
+        try:
+            return ip_address(candidate).is_loopback
+        except ValueError:
+            return False
+
+    def has_valid_token(self) -> bool:
+        expected = os.environ.get(AUTH_TOKEN_ENV, "").strip()
+        return bool(expected) and request_token(self) == expected
 
     def write_json(self, payload: dict[str, JsonValue], status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")

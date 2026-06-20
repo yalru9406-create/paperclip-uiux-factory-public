@@ -1,25 +1,29 @@
 {
   "apiBase": "https://paperclip.example.local",
-  "agents": [
-    {
-      "key": "lazycodex",
+  "agents": {
+    "lazycodex": {
       "name": "LazyCodex GPT Lane",
-      "adapter": "codex_local"
+      "id": "example-lazycodex-id",
+      "adapter": "codex_local",
+      "role": "bounded Codex/LazyCodex work"
     },
-    {
-      "key": "freeclaude",
+    "freeclaude": {
       "name": "FreeClaude GLM Lane",
-      "adapter": "hermes_local"
+      "id": "example-freeclaude-id",
+      "adapter": "hermes_local",
+      "role": "GLM critic lane"
     },
-    {
-      "key": "gajecode",
+    "gajecode": {
       "name": "GajeCode GLM Lane",
-      "adapter": "hermes_local"
+      "id": "example-gajecode-id",
+      "adapter": "hermes_local",
+      "role": "GajeCode engineering lane"
     },
-    {
-      "key": "antigravity",
+    "antigravity": {
       "name": "Gemini Antigravity Lane",
-      "adapter": "antigravity_local"
+      "id": "example-antigravity-id",
+      "adapter": "antigravity_local",
+      "role": "visual / long-context review lane"
     }
-  ]
+  }
 }

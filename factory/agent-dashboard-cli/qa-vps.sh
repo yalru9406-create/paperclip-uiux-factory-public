@@ -207,7 +207,7 @@ curl_capture public_context "$PUBLIC_BASE/yalru-agent-cli/api/context?agentRoute
 curl_capture public_panel_js "$PUBLIC_BASE/yalru-agent-cli/panel.js" 200 "javascript"
 curl_capture public_root "$PUBLIC_BASE/" 200 "text/html"
 curl_capture public_dashboard "$PUBLIC_BASE/YAL/agents/$AGENT_ROUTE/dashboard" 200 "text/html"
-curl_capture public_terminal_lazycodex "$PUBLIC_BASE/yalru-terminal/lazycodex/" 200 "text/html"
+curl_capture public_terminal_lazycodex_private_guard "$PUBLIC_BASE/yalru-terminal/lazycodex/" 403 "text/html"
 curl_capture yalru_ui "$PUBLIC_BASE/yalru/" 200 "text/html"
 
 section "pitfall_checks"
