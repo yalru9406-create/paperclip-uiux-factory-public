@@ -4,108 +4,45 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
-from pathlib import Path
 from typing import Callable, Final
 from urllib.parse import parse_qs, urlsplit
 
 from adapter_auth import adapter_status_payload, reconnect_input
-from discord_surfaces import discord_surfaces_payload
 from agent_config import (
-    CONFIG_PATH,
     DATA_DIR,
     ROOT,
     AgentConfig,
     JsonValue,
     agent_payload,
-    command_preview,
-    read_json_file,
     resolve_agent,
     room_state,
     string_field,
 )
+from agent_cli_commands import agent_status_command, chat_command, command_json, parse_request_body, request_token
+from discord_surfaces import discord_surfaces_payload
 from terminal_shell import capture_terminal, clear_terminal, ensure_terminal, restart_terminal, send_terminal_input
 
-SCRIPT_PATH: Final = ROOT / "agent-dashboard-cli" / "agent-dashboard-cli.js"
-FACTORY_BIN: Final = Path("/usr/local/bin/yalru-uiux-factory")
-PAPERCLIP_BIN: Final = Path("/usr/bin/paperclipai")
-MAX_MESSAGE_BYTES: Final = 16_384
-COMMAND_TIMEOUT_SECONDS: Final = 180
+SCRIPT_DIR: Final = ROOT / "agent-dashboard-cli"
+DASHBOARD_SCRIPTS: Final = frozenset(
+    {
+        "/agent-dashboard-cli.js",
+        "/agent-dashboard-state.js",
+        "/agent-dashboard-dom.js",
+        "/agent-dashboard-terminal.js",
+        "/agent-dashboard-bootstrap.js",
+    },
+)
 AUTH_TOKEN_ENV: Final = "YALRU_AGENT_CLI_TOKEN"
 
 
 TerminalAction = Callable[[AgentConfig, dict[str, JsonValue]], dict[str, JsonValue]]
 
 
-def command_json(command: list[str], timeout: int = COMMAND_TIMEOUT_SECONDS) -> dict[str, JsonValue]:
-    started = time.monotonic()
-    result = subprocess.run(
-        command,
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
-    duration_ms = int((time.monotonic() - started) * 1000)
-    return {
-        "ok": result.returncode == 0,
-        "returnCode": result.returncode,
-        "durationMs": duration_ms,
-        "stdout": result.stdout[-12000:],
-        "stderr": result.stderr[-12000:],
-        "command": command_preview(command),
-    }
-
-
-def parse_request_body(handler: BaseHTTPRequestHandler) -> dict[str, JsonValue]:
-    length_header = handler.headers.get("Content-Length", "0")
-    try:
-        length = int(length_header)
-    except ValueError as exc:
-        raise RuntimeError("Invalid Content-Length") from exc
-    if length > MAX_MESSAGE_BYTES:
-        raise RuntimeError("Request body is too large")
-    raw = handler.rfile.read(length)
-    decoded = json.loads(raw.decode("utf-8") or "{}")
-    if not isinstance(decoded, dict):
-        raise RuntimeError("Request JSON must be an object")
-    return decoded
-
-
-def chat_command(agent: AgentConfig, message: str, wake: bool) -> list[str]:
-    command = [str(FACTORY_BIN), str(agent.key), "--message", message]
-    if not wake:
-        command.append("--no-wake")
-    return command
-
-
-def agent_status_command(agent: AgentConfig) -> list[str]:
-    config = read_json_file(CONFIG_PATH)
-    api_base = string_field(config, "apiBase")
-    return [
-        "sudo",
-        "-u",
-        "paperclip",
-        f"HOME={DATA_DIR}",
-        str(PAPERCLIP_BIN),
-        "agent",
-        "get",
-        agent.id,
-        "--api-base",
-        api_base,
-        "--json",
-    ]
-
-
-def request_token(handler: BaseHTTPRequestHandler) -> str:
-    authorization = handler.headers.get("Authorization", "")
-    if authorization.startswith("Bearer "):
-        return authorization.removeprefix("Bearer ").strip()
-    return handler.headers.get("X-Yalru-Agent-Token", "").strip()
+def dashboard_script_body(path: str) -> bytes:
+    return (SCRIPT_DIR / path.removeprefix("/")).read_bytes()
 
 
 
@@ -116,11 +53,13 @@ class AgentCliHandler(BaseHTTPRequestHandler):
         return
 
     def do_GET(self) -> None:
-        match self.path.split("?", 1)[0]:
+        path = self.path.split("?", 1)[0]
+        if path in DASHBOARD_SCRIPTS:
+            self.write_script(path)
+            return
+        match path:
             case "/health":
                 self.write_json({"ok": True})
-            case "/agent-dashboard-cli.js":
-                self.write_script()
             case "/api/context":
                 self.write_context()
             case "/api/status":
@@ -149,8 +88,8 @@ class AgentCliHandler(BaseHTTPRequestHandler):
             case _:
                 self.write_json({"ok": False, "error": "Not found"}, HTTPStatus.NOT_FOUND)
 
-    def write_script(self) -> None:
-        body = SCRIPT_PATH.read_bytes()
+    def write_script(self, path: str) -> None:
+        body = dashboard_script_body(path)
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/javascript; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
@@ -169,10 +108,6 @@ class AgentCliHandler(BaseHTTPRequestHandler):
                 "agent": agent_payload(agent),
                 "room": room_state(),
                 "discordSurfaces": discord_surfaces_payload(),
-                "commands": {
-                    "attach": command_preview(chat_command(agent, "<message>", False)),
-                    "wake": command_preview(chat_command(agent, "<message>", True)),
-                },
             },
         )
 
@@ -313,7 +248,7 @@ class AgentCliHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-def main() -> int:  # noqa: BROAD_EXCEPT_OK
+def main() -> int:
     server = ThreadingHTTPServer(("127.0.0.1", 4192), AgentCliHandler)
     try:
         server.serve_forever()

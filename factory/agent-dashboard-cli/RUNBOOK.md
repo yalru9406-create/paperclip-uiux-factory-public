@@ -22,10 +22,13 @@ Run this after Paperclip Agent CLI work and attach the log to evidence:
 
 ```bash
 cd /srv/paperclip-data/multiagent-uiux-factory
-agent-dashboard-cli/qa-vps.sh | tee agent-dashboard-cli/evidence/20260620-vps-qa-paperclip-agent-cli-script.log
+mkdir -p /tmp/paperclip-agent-cli-evidence
+agent-dashboard-cli/qa-vps.sh | tee /tmp/paperclip-agent-cli-evidence/20260620-vps-qa-paperclip-agent-cli-script.log
 ```
 
 Expected: exit 0 and `overall=PASS`. The script runs only safe checks: Python compile, project doctor, `sudo -n nginx -t`, service active state, route/content assertions, nginx route-shape checks, the preconfigured Discord mobile thread ID from operator context only, and TAN read-only status. It does not restart services, read or dump root env/config files, print tokens, mutate TAN, or push git.
+
+The script does not run browser automation. Keep the Chrome/Playwright visual QA JSON and screenshots as separate evidence. If a browser QA JSON is copied onto the VPS intentionally, set `BROWSER_QA_ARTIFACT` to that local VPS file path; a missing supplied path fails the QA script.
 
 ## Services
 
@@ -51,10 +54,13 @@ Expected: `yalru-agent-cli.service` active, Nginx reloadable, 4192 sidecar liste
 - Do **not** use `add_header Content-Type ...` for JavaScript; use `default_type application/javascript`.
 - Do **not** shell-expand `$host`, `$remote_addr`, or `$proxy_add_x_forwarded_for` when templating the file.
 - Add `proxy_set_header Accept-Encoding "";` on the Paperclip upstream route so `sub_filter` can inject the panel script into HTML.
+- After the explicit short terminal routes, add `location = /yalru-terminal { deny all; }` and `location ^~ /yalru-terminal/ { deny all; }` before `location /` so unknown terminal paths cannot fall through to the Paperclip SPA.
+- Keep Nginx backups outside `/etc/nginx/sites-enabled`; files left there are loaded as live configs and can create duplicate `server_name` blocks.
 - If a live nginx edit is truly required, back up first:
 
 ```bash
-sudo cp /etc/nginx/sites-enabled/paperclip /etc/nginx/sites-enabled/paperclip.bak-$(date +%Y%m%d-%H%M%S)
+sudo mkdir -p /etc/nginx/backups
+sudo cp /etc/nginx/sites-enabled/paperclip /etc/nginx/backups/paperclip.bak-$(date +%Y%m%d-%H%M%S)
 sudo nginx -t
 sudo systemctl reload nginx
 curl -ksS -i https://127.0.0.1/yalru-agent-cli/health | sed -n '1,20p'
@@ -85,9 +91,11 @@ If browser automation is available, open an agent dashboard and verify:
 
 1. `CLI` tab exists.
 2. Clicking `CLI` creates `#yalru-agent-cli-panel`.
-3. The panel shows `AGENT TERMINAL`, `Adapter auth`, and `Agent message`.
-4. Console has no JavaScript errors.
-5. The static script may not literally contain uppercase `AGENT TERMINAL`; runtime rendering and CSS transform are the browser proof.
+3. On public hosts, the panel shows Discord chat surfaces and does not render private terminal, adapter auth, command runner, or agent message controls.
+4. On loopback-style hosts only, private terminal, adapter auth, command runner, and agent message controls may render.
+5. Short aliases such as `/YAL/agents/hermes#yalru-cli` redirect to the canonical dashboard route with `#yalru-cli` preserved.
+6. Console has no JavaScript errors on the final rendered route.
+7. The static script may not literally contain uppercase `AGENT TERMINAL`; runtime rendering and CSS transform are the browser proof.
 
 Hermes already verified this browser surface on 2026-06-20; keep the checklist in future evidence if browser driving is unavailable.
 
