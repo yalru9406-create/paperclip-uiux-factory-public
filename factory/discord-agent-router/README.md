@@ -4,22 +4,23 @@ Safe MVP for Discord-first per-agent chat windows.
 
 ## Lanes
 
+- `orchestrator` — Hermes Orchestrator / Hermes Top Orchestrator / ready
 - `lazycodex` — LazyCodex Bot / LazyCodex GPT Lane / ready
 - `freeclaude-glm` — FreeClaude[GLM] Bot / FreeClaude GLM 5.2 Critic / degraded while GLM quota is exhausted
 - `gajecode` — GajeCode Bot / GajeCode GLM 5.2 Engineer / degraded while GLM quota is exhausted
 - `antigravity` — Antigravity Bot / Gemini Antigravity Lane / ready
 
-## MVP mode
+## Live Discord surfaces
 
-The first implementation uses one Hermes/Yalru dispatcher and separate Discord channels or threads as the individual chat windows. This avoids requiring four new Discord bot tokens while still giving mobile users clear per-agent surfaces.
+The current implementation uses one Hermes/Yalru dispatcher and separate Discord channels as the individual chat windows. This avoids requiring four new Discord bot tokens while still giving mobile users clear per-agent surfaces.
 
-Recommended channels/threads:
+Verified channels:
 
-- `#agent-orchestrator`
-- `#agent-lazycodex`
-- `#agent-freeclaude-glm`
-- `#agent-gajecode`
-- `#agent-antigravity`
+- `#agent-orchestrator` — `1517790192516206632`
+- `#agent-lazycodex` — `1517790167090594002`
+- `#agent-freeclaude-glm` — `1517790172756840468`
+- `#agent-gajecode` — `1517790179606138961`
+- `#agent-antigravity` — `1517790186191458376`
 
 ## Safety
 
@@ -51,8 +52,6 @@ JSON
 
 ## Future live Discord integration
 
-1. Create or choose the actual Discord category/channels/threads.
-2. Add channel/thread IDs to `agents.yaml` after they exist.
-3. If one dispatcher bot is enough, add routing in the Hermes/Yalru intake layer.
-4. If separate bot identities are required, create four Discord Developer Portal applications and add tokens to the VPS secret store; never place tokens in this directory.
-5. Restart gateway only after backing up config and verifying YAML/env syntax.
+1. Keep one-dispatcher mode as the default unless distinct visible bot identities are required.
+2. If separate bot identities are required, create Discord Developer Portal applications and add tokens to the VPS secret store; never place tokens in this directory.
+3. Restart gateway only after backing up config and verifying YAML/env syntax.

@@ -8,7 +8,8 @@ from typing import Final
 from agent_config import ROOT, JsonValue, string_field
 
 DISCORD_ROUTER_REGISTRY: Final = ROOT / "discord-agent-router" / "agents.yaml"
-DISCORD_ROUTE_ORDER: Final = ("lazycodex", "freeclaude-glm", "gajecode", "antigravity")
+DISCORD_ROUTE_ORDER: Final = ("orchestrator", "lazycodex", "freeclaude-glm", "gajecode", "antigravity")
+DEFAULT_SURFACE_STATE: Final = "planned channel/thread"
 
 
 def discord_surfaces_payload(registry_path: Path = DISCORD_ROUTER_REGISTRY) -> list[dict[str, JsonValue]]:
@@ -35,6 +36,7 @@ def discord_surfaces_payload(registry_path: Path = DISCORD_ROUTER_REGISTRY) -> l
             "displayName": string_field(raw_agent, "displayName"),
             "agentName": string_field(raw_agent, "agentName"),
             "status": string_field(raw_agent, "status") or "unknown",
+            "channelId": string_field(raw_agent, "discordChannelId"),
         }
 
     surfaces_by_route: dict[str, dict[str, str]] = {}
@@ -46,7 +48,9 @@ def discord_surfaces_payload(registry_path: Path = DISCORD_ROUTER_REGISTRY) -> l
             continue
         surfaces_by_route[route_key] = {
             "name": string_field(raw_surface, "name"),
+            "channelId": string_field(raw_surface, "channelId"),
             "purpose": string_field(raw_surface, "purpose"),
+            "surfaceState": string_field(raw_surface, "surfaceState") or DEFAULT_SURFACE_STATE,
         }
 
     surfaces: list[dict[str, JsonValue]] = []
@@ -56,7 +60,10 @@ def discord_surfaces_payload(registry_path: Path = DISCORD_ROUTER_REGISTRY) -> l
         if agent is None or surface is None:
             continue
         name = surface["name"]
-        channel = f"#{name}" if name else "planned channel/thread"
+        channel = f"#{name}" if name else DEFAULT_SURFACE_STATE
+        channel_id = surface["channelId"] or agent["channelId"]
+        if surface["channelId"] and agent["channelId"] and surface["channelId"] != agent["channelId"]:
+            continue
         surfaces.append(
             {
                 "routeKey": route_key,
@@ -64,9 +71,10 @@ def discord_surfaces_payload(registry_path: Path = DISCORD_ROUTER_REGISTRY) -> l
                 "agentName": agent["agentName"],
                 "name": name,
                 "channel": channel,
+                "channelId": channel_id,
                 "status": agent["status"],
                 "purpose": surface["purpose"],
-                "surfaceState": "planned channel/thread",
+                "surfaceState": surface["surfaceState"],
                 "dangerousExecutionBridge": False,
             },
         )

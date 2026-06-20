@@ -1,13 +1,27 @@
 {
   "version": 1,
   "dangerousExecutionBridgeDefault": false,
+  "discordGuildId": "1492910062308561066",
+  "discordCategoryId": "1492910063017525359",
   "agents": [
+    {
+      "routeKey": "orchestrator",
+      "displayName": "Hermes Orchestrator",
+      "agentName": "Hermes Top Orchestrator",
+      "adapterType": "hermes_gateway",
+      "discordMode": "channel",
+      "discordChannelId": "1517790192516206632",
+      "status": "ready",
+      "fallbackPolicy": "Use for routing, status, escalations, and explicit operator-approved coordination only.",
+      "dangerousExecutionBridge": false
+    },
     {
       "routeKey": "lazycodex",
       "displayName": "LazyCodex Bot",
       "agentName": "LazyCodex GPT Lane",
       "adapterType": "codex_local",
       "discordMode": "thread_or_channel",
+      "discordChannelId": "1517790167090594002",
       "status": "ready",
       "fallbackPolicy": "Use Codex/LazyCodex only for bounded app-code, review, and QA work. Do not use for bulk/default worker traffic.",
       "dangerousExecutionBridge": false
@@ -18,6 +32,7 @@
       "agentName": "FreeClaude GLM 5.2 Critic",
       "adapterType": "hermes_local",
       "discordMode": "thread_or_channel",
+      "discordChannelId": "1517790172756840468",
       "status": "degraded_glm_quota_exhausted",
       "fallbackPolicy": "Queue requests or ask orchestrator for an explicitly approved non-GLM fallback until GLM quota is available.",
       "dangerousExecutionBridge": false
@@ -28,6 +43,7 @@
       "agentName": "GajeCode GLM 5.2 Engineer",
       "adapterType": "hermes_local",
       "discordMode": "thread_or_channel",
+      "discordChannelId": "1517790179606138961",
       "status": "degraded_glm_quota_exhausted",
       "fallbackPolicy": "Queue engineering tasks or route to LazyCodex/Codex only after explicit orchestrator approval while GLM quota is exhausted.",
       "dangerousExecutionBridge": false
@@ -38,16 +54,17 @@
       "agentName": "Gemini Antigravity Lane",
       "adapterType": "antigravity_local",
       "discordMode": "thread_or_channel",
+      "discordChannelId": "1517790186191458376",
       "status": "ready",
       "fallbackPolicy": "Use for screenshot, long-doc, and visual review tasks; keep action authority with orchestrator.",
       "dangerousExecutionBridge": false
     }
   ],
   "recommendedDiscordSurfaces": [
-    {"routeKey": "orchestrator", "name": "agent-orchestrator", "purpose": "routing, status, escalations"},
-    {"routeKey": "lazycodex", "name": "agent-lazycodex", "purpose": "bounded Codex/LazyCodex work"},
-    {"routeKey": "freeclaude-glm", "name": "agent-freeclaude-glm", "purpose": "GLM critic lane; degraded while quota exhausted"},
-    {"routeKey": "gajecode", "name": "agent-gajecode", "purpose": "GajeCode engineering lane; degraded while GLM quota exhausted"},
-    {"routeKey": "antigravity", "name": "agent-antigravity", "purpose": "visual / long-context review lane"}
+    {"routeKey": "orchestrator", "name": "agent-orchestrator", "channelId": "1517790192516206632", "surfaceState": "created_channel_verified", "purpose": "routing, status, escalations"},
+    {"routeKey": "lazycodex", "name": "agent-lazycodex", "channelId": "1517790167090594002", "surfaceState": "created_channel_verified", "purpose": "bounded Codex/LazyCodex work"},
+    {"routeKey": "freeclaude-glm", "name": "agent-freeclaude-glm", "channelId": "1517790172756840468", "surfaceState": "created_channel_verified", "purpose": "GLM critic lane; degraded while quota exhausted"},
+    {"routeKey": "gajecode", "name": "agent-gajecode", "channelId": "1517790179606138961", "surfaceState": "created_channel_verified", "purpose": "GajeCode engineering lane; degraded while GLM quota exhausted"},
+    {"routeKey": "antigravity", "name": "agent-antigravity", "channelId": "1517790186191458376", "surfaceState": "created_channel_verified", "purpose": "visual / long-context review lane"}
   ]
 }
