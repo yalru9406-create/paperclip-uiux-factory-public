@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
@@ -38,6 +39,8 @@ from paper_engine.research_gate import (
     format_research_gate_report,
 )
 from paper_engine.runner import DEFAULT_DATA_DIR, DEFAULT_TOP_N, PaperRunConfig, run_once
+from paper_engine.status import build_status, format_status
+from paper_engine.status_payload import status_payload
 
 app = typer.Typer(help="paper engine: TAN과 분리된 paper-only shadow runtime")
 console = Console()
@@ -92,6 +95,18 @@ def report(
         f"win_rate={paper_report.trades.win_rate:.2%} data={data_dir / 'paper_report.json'}"
     )
     console.print(message)
+
+
+@app.command()
+def status(
+    data_dir: Annotated[Path, typer.Option("--data-dir")] = DEFAULT_DATA_DIR,
+    output_json: Annotated[bool, typer.Option("--json", help="Emit structured JSON status.")] = False,
+) -> None:
+    paper_status = build_status(data_dir)
+    if output_json:
+        typer.echo(json.dumps(status_payload(paper_status), ensure_ascii=False, indent=2, sort_keys=True))
+        return
+    console.print(format_status(paper_status))
 
 
 @app.command("research-gate")

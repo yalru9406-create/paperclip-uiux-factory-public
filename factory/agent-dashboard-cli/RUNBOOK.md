@@ -26,7 +26,7 @@ mkdir -p /tmp/paperclip-agent-cli-evidence
 agent-dashboard-cli/qa-vps.sh | tee /tmp/paperclip-agent-cli-evidence/20260620-vps-qa-paperclip-agent-cli-script.log
 ```
 
-Expected: exit 0 and `overall=PASS`. The script runs only safe checks: Python compile, project doctor, `sudo -n nginx -t`, service active state, route/content assertions, nginx route-shape checks, the preconfigured Discord mobile thread ID from operator context only, and TAN read-only status. It does not restart services, read or dump root env/config files, print tokens, mutate TAN, or push git.
+Expected: exit 0 and `overall=PASS`. The script runs only safe checks: Python compile, project doctor, `sudo -n nginx -t`, service active state, route/content assertions, `/yalru-agent-cli/api/public-status` assertions, nginx route-shape checks, the preconfigured Discord mobile thread ID from operator context only, and TAN read-only status. It does not restart services, read or dump root env/config files, print tokens, mutate TAN, or push git.
 
 The script does not run browser automation. Keep the Chrome/Playwright visual QA JSON and screenshots as separate evidence. If a browser QA JSON is copied onto the VPS intentionally, set `BROWSER_QA_ARTIFACT` to that local VPS file path; a missing supplied path fails the QA script.
 
@@ -78,12 +78,13 @@ sudo -n nginx -t
 systemctl is-active nginx hermes-gateway yalru-agent-cli tan-live tan-api
 curl -ksS -i https://127.0.0.1/yalru-agent-cli/health | sed -n '1,20p'
 curl -ksS -i 'https://127.0.0.1/yalru-agent-cli/api/context?agentRoute=hermes-top-orchestrator' | sed -n '1,20p'
+curl -ksS -i https://127.0.0.1/yalru-agent-cli/api/public-status | sed -n '1,40p'
 curl -ksS -i https://127.0.0.1/yalru-agent-cli/panel.js | sed -n '1,20p'
 curl -ksS -i https://127.0.0.1/ | sed -n '1,20p'
 curl -sS -i https://paperclip.46.250.229.212.sslip.io/yalru-agent-cli/health | sed -n '1,20p'
 ```
 
-Expected: health returns JSON `{"ok": true}`, context returns Hermes route context JSON, panel script returns JavaScript, and root/dashboard HTML include `/yalru-agent-cli/panel.js`.
+Expected: health returns JSON `{"ok": true}`, context returns Hermes route context JSON, public status returns `safety.liveMutationAllowed=false` and `privateControls.enabled=false`, panel script returns JavaScript, and root/dashboard HTML include `/yalru-agent-cli/panel.js`.
 
 ## Browser QA checklist
 
@@ -91,13 +92,16 @@ If browser automation is available, open an agent dashboard and verify:
 
 1. `CLI` tab exists.
 2. Clicking `CLI` creates `#yalru-agent-cli-panel`.
-3. On public hosts, the panel shows Discord chat surfaces and does not render private terminal, adapter auth, command runner, or agent message controls.
-4. On loopback-style hosts only, private terminal, adapter auth, command runner, and agent message controls may render.
-5. Short aliases such as `/YAL/agents/hermes#yalru-cli` redirect to the canonical dashboard route with `#yalru-cli` preserved.
-6. Console has no JavaScript errors on the final rendered route.
-7. The static script may not literally contain uppercase `AGENT TERMINAL`; runtime rendering and CSS transform are the browser proof.
+3. On public hosts, the panel shows Discord chat surfaces plus Public ops status with TAN LIVE visibility, `tan_mutation=not_performed`, PAPER artifact metadata, promotion gate/live approval state, VPS QA safety facts, and `Live mutation locked / C5` text.
+4. On public hosts, the panel does not render private terminal, adapter auth, command runner, or agent message controls.
+5. On loopback-style hosts only, private terminal, adapter auth, command runner, and agent message controls may render.
+6. Short aliases such as `/YAL/agents/hermes#yalru-cli` redirect to the canonical dashboard route with `#yalru-cli` preserved.
+7. Console has no JavaScript errors on the final rendered route.
+8. The static script may not literally contain uppercase `AGENT TERMINAL`; runtime rendering and CSS transform are the browser proof.
 
 Hermes already verified this browser surface on 2026-06-20; keep the checklist in future evidence if browser driving is unavailable.
+
+PAPER status is independently inspectable with `paper status --data-dir /srv/hermes-os/paper/data --json`. It must report `safety.liveMutationAllowed=false`, a `promotionGate.liveApprovalState`, block-reason counts, and it must not write `paper_report.json`.
 
 ## Safety notes
 

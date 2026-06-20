@@ -119,6 +119,7 @@ curl_capture sidecar_loopback_health "http://127.0.0.1:4192/health" 200 "applica
 curl_capture local_nginx_health "https://127.0.0.1/yalru-agent-cli/health" 200 "application/json"
 curl_capture public_health "$PUBLIC_BASE/yalru-agent-cli/health" 200 "application/json"
 curl_capture public_context "$PUBLIC_BASE/yalru-agent-cli/api/context?agentRoute=$AGENT_ROUTE" 200 "application/json"
+curl_capture public_status "$PUBLIC_BASE/yalru-agent-cli/api/public-status" 200 "application/json"
 curl_capture public_panel_js "$PUBLIC_BASE/yalru-agent-cli/panel.js" 200 "javascript"
 curl_capture public_panel_state_js "$PUBLIC_BASE/yalru-agent-cli/agent-dashboard-state.js" 200 "javascript"
 curl_capture public_panel_dom_js "$PUBLIC_BASE/yalru-agent-cli/agent-dashboard-dom.js" 200 "javascript"
@@ -176,7 +177,14 @@ fi
 
 section "content_assertions"
 assert_body_json_ok health_ok_true "$TMP_DIR/public_health.body"
+assert_body_json_ok public_status_ok_true "$TMP_DIR/public_status.body"
 assert_body_contains context_has_hermes "$TMP_DIR/public_context.body" "Hermes"
+assert_body_contains context_has_public_ops_status "$TMP_DIR/public_context.body" "\"opsStatus\""
+assert_body_contains context_has_tan_mutation_guard "$TMP_DIR/public_context.body" "\"tanMutation\": \"not_performed\""
+assert_body_contains context_has_private_terminal_guard "$TMP_DIR/public_context.body" "\"privateTerminalEndpoints\": \"not_exposed_public\""
+assert_body_contains public_status_has_live_mutation_guard "$TMP_DIR/public_status.body" "\"liveMutationAllowed\": false"
+assert_body_contains public_status_has_private_controls_guard "$TMP_DIR/public_status.body" "\"privateControls\""
+assert_body_contains public_status_has_live_approval_state "$TMP_DIR/public_status.body" "\"liveApprovalState\""
 if grep -Fq '"commands"' "$TMP_DIR/public_context.body"; then
   fail "public_context_no_command_preview"
 else
@@ -189,6 +197,8 @@ assert_body_contains panel_loader_references_dom_chunk "$TMP_DIR/public_panel_js
 assert_body_contains panel_loader_references_terminal_chunk "$TMP_DIR/public_panel_js.body" "agent-dashboard-terminal.js"
 assert_body_contains panel_loader_references_bootstrap_chunk "$TMP_DIR/public_panel_js.body" "agent-dashboard-bootstrap.js"
 assert_body_contains panel_state_has_agent_terminal_literal "$TMP_DIR/public_panel_state_js.body" "Agent Terminal"
+assert_body_contains panel_state_has_public_ops_status_literal "$TMP_DIR/public_panel_state_js.body" "Public ops status"
+assert_body_contains panel_state_has_c5_lock_literal "$TMP_DIR/public_panel_state_js.body" "Live mutation locked / C5"
 assert_body_contains panel_dom_has_placement_logic "$TMP_DIR/public_panel_dom_js.body" "placePanel"
 assert_body_contains panel_terminal_has_private_endpoint_calls "$TMP_DIR/public_panel_terminal_js.body" "/api/terminal/start"
 assert_body_contains panel_bootstrap_has_observer "$TMP_DIR/public_panel_bootstrap_js.body" "MutationObserver"

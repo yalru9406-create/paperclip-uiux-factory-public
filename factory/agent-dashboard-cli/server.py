@@ -23,6 +23,7 @@ from agent_config import (
 )
 from agent_cli_commands import agent_status_command, chat_command, command_json, parse_request_body, request_token
 from discord_surfaces import discord_surfaces_payload
+from public_ops_status import public_ops_status_payload
 from terminal_shell import capture_terminal, clear_terminal, ensure_terminal, restart_terminal, send_terminal_input
 
 SCRIPT_DIR: Final = ROOT / "agent-dashboard-cli"
@@ -62,6 +63,8 @@ class AgentCliHandler(BaseHTTPRequestHandler):
                 self.write_json({"ok": True})
             case "/api/context":
                 self.write_context()
+            case "/api/public-status":
+                self.write_public_status()
             case "/api/status":
                 self.write_status()
             case "/api/adapter/status":
@@ -108,8 +111,12 @@ class AgentCliHandler(BaseHTTPRequestHandler):
                 "agent": agent_payload(agent),
                 "room": room_state(),
                 "discordSurfaces": discord_surfaces_payload(),
+                "opsStatus": public_ops_status_payload(),
             },
         )
+
+    def write_public_status(self) -> None:
+        self.write_json(public_ops_status_payload())
 
     def write_status(self) -> None:
         if not self.require_private_access():
