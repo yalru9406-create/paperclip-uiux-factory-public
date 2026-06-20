@@ -21,4 +21,4 @@ This export intentionally excludes live credentials, `.env` files, `.omo` ledger
 - `cd hermes-paper && uv run basedpyright src tests`
 - `cd hermes-paper && uv run ruff check src tests`
 
-The live VPS QA also passed with `factory/agent-dashboard-cli/qa-vps.sh`, including public `/yalru-agent-cli/*` read-only routes and a private guard check that `/yalru-terminal/lazycodex/` returns `403` from the public host.
+The live VPS QA also passed with `factory/agent-dashboard-cli/qa-vps.sh`, including public `/yalru-agent-cli/*` read-only routes, a private guard check that `/yalru-terminal/lazycodex/` returns `403` from the public host, and spoofed `X-Forwarded-For: 127.0.0.1` checks for terminal output/input.

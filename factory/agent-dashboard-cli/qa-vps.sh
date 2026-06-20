@@ -210,6 +210,31 @@ curl_capture public_dashboard "$PUBLIC_BASE/YAL/agents/$AGENT_ROUTE/dashboard" 2
 curl_capture public_terminal_lazycodex_private_guard "$PUBLIC_BASE/yalru-terminal/lazycodex/" 403 "text/html"
 curl_capture yalru_ui "$PUBLIC_BASE/yalru/" 200 "text/html"
 
+section "private_endpoint_guards"
+terminal_output_code="$(curl -ksS --max-time 15 -o "$TMP_DIR/terminal_output_private_guard.body" -w '%{http_code}' "$PUBLIC_BASE/yalru-agent-cli/api/terminal/output?agentRoute=$AGENT_ROUTE" 2>"$TMP_DIR/terminal_output_private_guard.err")"
+printf 'terminal_output_private_guard code=%s\n' "$terminal_output_code"
+if [ "$terminal_output_code" = "403" ]; then
+  pass "terminal_output_private_guard status=403"
+else
+  fail "terminal_output_private_guard status=$terminal_output_code expected=403"
+fi
+
+spoofed_terminal_output_code="$(curl -ksS --max-time 15 -H 'X-Forwarded-For: 127.0.0.1' -o "$TMP_DIR/spoofed_terminal_output_private_guard.body" -w '%{http_code}' "$PUBLIC_BASE/yalru-agent-cli/api/terminal/output?agentRoute=$AGENT_ROUTE" 2>"$TMP_DIR/spoofed_terminal_output_private_guard.err")"
+printf 'spoofed_terminal_output_private_guard code=%s\n' "$spoofed_terminal_output_code"
+if [ "$spoofed_terminal_output_code" = "403" ]; then
+  pass "spoofed_terminal_output_private_guard status=403"
+else
+  fail "spoofed_terminal_output_private_guard status=$spoofed_terminal_output_code expected=403"
+fi
+
+spoofed_terminal_input_code="$(curl -ksS --max-time 15 -H 'X-Forwarded-For: 127.0.0.1' -H 'Content-Type: application/json' -X POST -d "{\"agentRoute\":\"$AGENT_ROUTE\",\"input\":\"pwd\"}" -o "$TMP_DIR/spoofed_terminal_input_private_guard.body" -w '%{http_code}' "$PUBLIC_BASE/yalru-agent-cli/api/terminal/input" 2>"$TMP_DIR/spoofed_terminal_input_private_guard.err")"
+printf 'spoofed_terminal_input_private_guard code=%s\n' "$spoofed_terminal_input_code"
+if [ "$spoofed_terminal_input_code" = "403" ]; then
+  pass "spoofed_terminal_input_private_guard status=403"
+else
+  fail "spoofed_terminal_input_private_guard status=$spoofed_terminal_input_code expected=403"
+fi
+
 section "pitfall_checks"
 curl_note api_health_pitfall "https://127.0.0.1/yalru-agent-cli/api/health"
 api_health_type="$(awk -F': ' 'tolower($1)=="content-type"{print $2}' "$TMP_DIR/api_health_pitfall.headers" 2>/dev/null | tr -d '\r' | tail -n 1)"

@@ -13,7 +13,12 @@ class FakeHandler:
 
 
 def test_public_forwarded_for_is_not_loopback() -> None:
-    handler = FakeHandler({"X-Forwarded-For": "203.0.113.10"}, ("127.0.0.1", 42192))
+    handler = FakeHandler({"X-Yalru-Internal-Proxy": "1", "X-Forwarded-For": "203.0.113.10"}, ("127.0.0.1", 42192))
+    assert AgentCliHandler.is_loopback_request(handler) is False
+
+
+def test_spoofed_forwarded_for_is_not_loopback() -> None:
+    handler = FakeHandler({"X-Yalru-Internal-Proxy": "1", "X-Forwarded-For": "127.0.0.1"}, ("127.0.0.1", 42192))
     assert AgentCliHandler.is_loopback_request(handler) is False
 
 
@@ -43,6 +48,7 @@ def test_valid_token_requires_configured_secret() -> None:
 
 def main() -> int:
     test_public_forwarded_for_is_not_loopback()
+    test_spoofed_forwarded_for_is_not_loopback()
     test_loopback_forwarded_for_is_loopback()
     test_bearer_and_header_tokens_are_supported()
     test_valid_token_requires_configured_secret()

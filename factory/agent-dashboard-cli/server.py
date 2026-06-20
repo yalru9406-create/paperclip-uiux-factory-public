@@ -292,8 +292,9 @@ class AgentCliHandler(BaseHTTPRequestHandler):
         return False
 
     def is_loopback_request(self) -> bool:
-        forwarded_for = self.headers.get("X-Forwarded-For", "")
-        candidate = forwarded_for.split(",", 1)[0].strip() or str(self.client_address[0])
+        if self.headers.get("X-Yalru-Internal-Proxy", ""):
+            return False
+        candidate = str(self.client_address[0])
         try:
             return ip_address(candidate).is_loopback
         except ValueError:
